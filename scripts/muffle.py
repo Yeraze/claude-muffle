@@ -50,11 +50,13 @@ from llmisms import CATEGORIES, scrub  # noqa: E402
 
 DEFAULTS = {
     # Terminal text is throwaway, so it gets the full treatment.
-    "display": ["sycophancy", "filler", "closer", "cliche", "corporate", "hype", "wordy"],
+    "display": ["sycophancy", "filler", "closer", "cliche", "corporate", "hype",
+                "wordy", "punctuation"],
     # Files are real, so they get only the rules with the fewest false
-    # positives: openers, hedges, sign-offs, and dead metaphors. Word swaps
-    # like "ensure" -> "make sure" stay off on disk until you opt in.
-    "file": ["sycophancy", "filler", "closer", "cliche"],
+    # positives: openers, hedges, sign-offs, dead metaphors, and the em-dash
+    # swap. Word swaps like "ensure" -> "make sure" stay off on disk until
+    # you opt in.
+    "file": ["sycophancy", "filler", "closer", "cliche", "punctuation"],
     "decision": "ask",
     "redact": True,
 }

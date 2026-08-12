@@ -35,6 +35,35 @@ FLAG = None   # report only, never rewrite
 
 CAPFIX = "\x01"
 
+# A replacement can also be a function taking the match and returning the
+# replacement text, for rules that need to look at what surrounds the match.
+
+
+def em_dash(m):
+    """Turn an em-dash into a comma, unless the context says leave it.
+
+    Preserved: line-initial dashes (attributions, list markers) and numeric
+    ranges. Dropped entirely when it dangles at the end of a line, or reduced
+    to a space when the preceding character already carries the pause.
+    """
+    text = m.string
+    before = text[m.start() - 1] if m.start() else ""
+    after = text[m.end()] if m.end() < len(text) else ""
+
+    if before in ("", "\n"):
+        return m.group(0)               # "-- Anonymous", or a list marker
+    if before.isdigit() and after.isdigit():
+        return m.group(0)               # 1914-1918
+    if after in ("", "\n"):
+        return ""                       # dangling at end of line
+    if before in ",;:.!?":
+        return " "                      # the pause is already there
+    return ", "
+
+
+# Display labels for function replacements, used by --list and --check.
+CALLABLE_LABELS = {em_dash: "-> , (context aware)"}
+
 
 class Rule:
     __slots__ = ("cat", "pat", "repl", "note")
@@ -272,13 +301,15 @@ RULES = [
     R("wordy", r"\bregarding\b", "about", "regarding"),
     R("wordy", r"\b(?:basically|essentially|literally|actually|simply)\s+", X, "basically / essentially"),
 
+    # -- punctuation: the glyphs that give it away --------------------------
+    R("punctuation", r"[ \t]*—[ \t]*", em_dash, "em-dash"),
+
     # -- structure: flag only, the fix needs judgment -----------------------
     R("structure", r"\bnot just\b[^.!?\n]{0,80}?\bbut\b", FLAG, "not just X, but Y"),
     R("structure", r"\bnot only\b[^.!?\n]{0,80}?\bbut also\b", FLAG, "not only X but also Y"),
     R("structure", r"\bisn't (?:just )?about\b[^.!?\n]{0,60}?\bit's about\b", FLAG, "isn't about X, it's about Y"),
     R("structure", r"\b(?:this|it|that) (?:isn't|is not|wasn't)\b[^.!?\n]{0,60}[.!]\s+(?:it's|this is|that's)\b",
       FLAG, "negative parallelism: not X. Y."),
-    R("structure", r"—", FLAG, "em-dash"),
     R("structure", r"(?m)^\s*[-*]\s+\*\*[^*\n]+\*\*\s*[-:]", FLAG, "bold-lead bullet"),
     R("structure", r"\blet(?:'s| us)\b", FLAG, "let's (collaborative we)"),
     R("structure", r"\bwe(?:'ll| will|'ve| have)\b", FLAG, "we (when you mean you or I)"),
@@ -293,7 +324,8 @@ for _r in RULES:
     if _r.cat not in CATEGORIES:
         CATEGORIES.append(_r.cat)
 
-DEFAULT_ON = {"sycophancy", "filler", "closer", "cliche", "corporate", "hype", "wordy"}
+DEFAULT_ON = {"sycophancy", "filler", "closer", "cliche", "corporate", "hype", "wordy",
+              "punctuation"}
 
 
 # --- protecting code -------------------------------------------------------
@@ -335,6 +367,17 @@ def _match_case(src, dst):
     if src[0].isupper():
         return dst[0].upper() + dst[1:]
     return dst
+
+
+def describe(rule):
+    """One-line summary of what a rule does, for --list and --check."""
+    if rule.repl is FLAG:
+        return "(needs a human)"
+    if callable(rule.repl):
+        return CALLABLE_LABELS.get(rule.repl, "(context aware)")
+    if rule.repl in (X, CUT):
+        return "(delete)"
+    return rule.repl
 
 
 def _active(enabled):
@@ -385,7 +428,9 @@ def scrub(text, enabled=None, articles=True):
     masked, store = mask(text)
     counts = {}
     for rule in _active(enabled):
-        if rule.repl in (X, CUT):
+        if callable(rule.repl):
+            masked, n = rule.pat.subn(rule.repl, masked)
+        elif rule.repl in (X, CUT):
             masked, n = rule.pat.subn(rule.repl, masked)
         else:
             masked, n = rule.pat.subn(
@@ -413,8 +458,7 @@ def analyze(text, enabled=None):
                 "cat": rule.cat,
                 "note": rule.note,
                 "text": " ".join(m.group(0).split())[:60],
-                "fix": "(needs a human)" if rule.repl is FLAG
-                       else "(delete)" if rule.repl in (X, CUT) else rule.repl,
+                "fix": describe(rule),
             })
     hits.sort(key=lambda h: h["line"])
     return hits
@@ -455,8 +499,7 @@ def main(argv=None):
             state = "on" if cat in DEFAULT_ON else "off"
             print("\n%s (%d rules, %s by default)" % (cat, len(rules), state))
             for r in rules:
-                fix = "FLAG" if r.repl is FLAG else "delete" if r.repl in (X, CUT) else "-> " + r.repl
-                print("  %-42s %s" % (r.note, fix))
+                print("  %-42s %s" % (r.note, describe(r)))
         return 0
 
     enabled = resolve(args.on, args.off)
@@ -511,6 +554,14 @@ CASES = [
     ("First and foremost, check the logs.", "First, check the logs."),
     ("See https://example.com/utilize-this for more.",
      "See https://example.com/utilize-this for more."),
+    # em-dash
+    ("We ship it — soon.", "We ship it, soon."),
+    ("The fix — a one-liner — landed.", "The fix, a one-liner, landed."),
+    ("It is fast—cheap too.", "It is fast, cheap too."),
+    ("The range 1914—1918 held.", "The range 1914—1918 held."),
+    ("Quote.\n— Anonymous", "Quote.\n— Anonymous"),
+    ("Wait, — that is wrong.", "Wait, that is wrong."),
+    ("Use `a — b` verbatim.", "Use `a — b` verbatim."),
 ]
 
 

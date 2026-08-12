@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0
+
+- Em-dashes now get rewritten instead of only reported. The rule moved out of
+  the flag-only `structure` category into a new `punctuation` category, which
+  is on by default for both terminal text and files.
+- An em-dash becomes a comma, drops to a space after existing punctuation, and
+  disappears when it dangles at the end of a line. Numeric ranges, line-initial
+  dashes, and en-dashes are left alone.
+- Rule replacements can now be functions, for rules that need to look at what
+  surrounds the match. `--list` labels them from `CALLABLE_LABELS`.
+- Self-test covers the em-dash cases: 23 total.
+
 ## 0.1.0
 
 First release.

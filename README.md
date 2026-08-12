@@ -47,7 +47,7 @@ path runs a smaller, safer rule set, and asks before applying — see below.
 
 ## The rules
 
-186 rules in nine categories.
+186 rules in ten categories.
 
 | category | catches | terminal | files |
 | --- | --- | :---: | :---: |
@@ -55,11 +55,31 @@ path runs a smaller, safer rule set, and asks before applying — see below.
 | `filler` | "It's important to note that", "in order to" | on | on |
 | `closer` | "I hope this helps!", "Feel free to…" | on | on |
 | `cliche` | "delve into", "a testament to", "unlock the power of" | on | on |
+| `punctuation` | em-dashes → commas | on | on |
 | `corporate` | "circle back", "reach out", "synergy" | on | off |
 | `hype` | "very", "robust", "seamless", "cutting-edge" | on | off |
 | `wordy` | utilize → use, leverage → use, ensure → make sure | on | off |
-| `structure` | "not just X, but Y", em-dashes, bold-lead bullets | flag only | flag only |
+| `structure` | "not just X, but Y", bold-lead bullets, "let's" | flag only | flag only |
 | `emoji` | decorative emoji | off | off |
+
+### Em-dashes
+
+`punctuation` runs on both paths, including files, because the swap is
+mechanical rather than a judgment call. An em-dash becomes a comma:
+
+| before | after |
+| --- | --- |
+| `The plan — such as it is — ships Friday.` | `The plan, such as it is, ships Friday.` |
+| `It is fast—cheap too.` | `It is fast, cheap too.` |
+| `Wait, — that is wrong.` | `Wait, that is wrong.` |
+| `Trailing thought —` | `Trailing thought` |
+
+Four cases are left alone: numeric ranges (`2019—2024`), line-initial dashes
+(`— Anonymous`, list markers), and anything inside code or a URL. En-dashes
+are never touched.
+
+Turn it off by dropping `"punctuation"` from `display`, `file`, or both in
+`.claude-muffle.json`.
 
 Files get the conservative set on purpose. Those four categories remove
 throat-clearing that nobody misses; the word-level swaps have more false
@@ -92,8 +112,9 @@ in `$HOME` to apply it everywhere:
 
 ```json
 {
-  "display":  ["sycophancy", "filler", "closer", "cliche", "corporate", "hype", "wordy"],
-  "file":     ["sycophancy", "filler", "closer", "cliche"],
+  "display":  ["sycophancy", "filler", "closer", "cliche", "punctuation",
+               "corporate", "hype", "wordy"],
+  "file":     ["sycophancy", "filler", "closer", "cliche", "punctuation"],
   "decision": "ask",
   "redact":   true
 }
@@ -196,11 +217,15 @@ R("filler", r"\bit(?:'s| is) worth noting that\s+", CUT, "It's worth noting that
 R("structure", r"\bnot just\b[^.!?\n]{0,80}?\bbut\b", FLAG, "not just X, but Y"),
 ```
 
-Three replacement markers:
+A replacement is a string, one of three markers, or a function:
 
+- a plain string — swap it in, inheriting the case of what it replaced
 - `X` — delete it, for mid-sentence words like "very"
 - `CUT` — delete it and capitalize what follows, for sentence openers
 - `FLAG` — report only, never rewrite
+- a function taking the match and returning the replacement, for rules that
+  need to see what surrounds the match. `em_dash` is the one that does this;
+  add a label for it in `CALLABLE_LABELS` so `--list` can describe it.
 
 Everything is matched case-insensitively, and replacements inherit the case of
 what they replace, so "Utilize" becomes "Use". Order matters: long phrases go
