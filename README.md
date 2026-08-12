@@ -47,7 +47,9 @@ path runs a smaller, safer rule set, and asks before applying — see below.
 
 ## The rules
 
-186 rules in ten categories.
+331 rules in thirteen categories. Many come from Wikipedia's
+[Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing),
+which catalogues the tells its editors use to spot LLM text.
 
 | category | catches | terminal | files |
 | --- | --- | :---: | :---: |
@@ -55,17 +57,37 @@ path runs a smaller, safer rule set, and asks before applying — see below.
 | `filler` | "It's important to note that", "in order to" | on | on |
 | `closer` | "I hope this helps!", "Feel free to…" | on | on |
 | `cliche` | "delve into", "a testament to", "unlock the power of" | on | on |
-| `punctuation` | em-dashes → commas | on | on |
+| `puffery` | "marking a pivotal moment", "nestled in", "faces challenges" | on | on |
+| `copula` | boasts → has, serves as → is, is home to → has | on | on |
+| `chatbot` | "As of my last knowledge update", "Would you like me to…" | on | on |
+| `punctuation` | em-dashes → commas, curly quotes → straight | on | on |
 | `corporate` | "circle back", "reach out", "synergy" | on | off |
-| `hype` | "very", "robust", "seamless", "cutting-edge" | on | off |
-| `wordy` | utilize → use, leverage → use, ensure → make sure | on | off |
-| `structure` | "not just X, but Y", bold-lead bullets, "let's" | flag only | flag only |
+| `hype` | "very", "robust", "seamless", "vibrant", "enduring" | on | off |
+| `wordy` | utilize → use, garner → get, enhance → improve | on | off |
+| `structure` | "not just X, but Y", trailing "-ing" analyses, rule of three | flag only | flag only |
 | `emoji` | decorative emoji | off | off |
 
-### Em-dashes
+Three of these come straight from the Wikipedia page:
 
-`punctuation` runs on both paths, including files, because the swap is
-mechanical rather than a judgment call. An em-dash becomes a comma:
+**`puffery`** is their [WP:AILEGACY](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing#Undue_emphasis_on_significance,_legacy,_and_broader_trends)
+list — LLMs pad a topic with claims about its significance and its place in
+some broader trend.
+
+**`copula`** covers a measurable effect: the words *is* and *are* dropped over
+10% in academic writing after 2022, replaced by marketing verbs. So `boasts a`
+becomes `has a`, `serves as` becomes `is`.
+
+**`chatbot`** catches assistant-speak that leaked into the prose — knowledge
+cutoff disclaimers, "Would you like me to…", and `[Your Name]`-style
+placeholders. Placeholders are flag-only: you want to *see* those, not have
+them quietly deleted.
+
+### Punctuation
+
+`punctuation` runs on both paths, including files, because the swaps are
+mechanical rather than judgment calls. Curly quotes become straight (`“` → `"`,
+`’` → `'`), `…` becomes `...`, a horizontal rule sitting directly above a
+heading is dropped, and an em-dash becomes a comma:
 
 | before | after |
 | --- | --- |
@@ -112,9 +134,10 @@ in `$HOME` to apply it everywhere:
 
 ```json
 {
-  "display":  ["sycophancy", "filler", "closer", "cliche", "punctuation",
-               "corporate", "hype", "wordy"],
-  "file":     ["sycophancy", "filler", "closer", "cliche", "punctuation"],
+  "display":  ["sycophancy", "filler", "closer", "cliche", "puffery", "copula",
+               "chatbot", "punctuation", "corporate", "hype", "wordy"],
+  "file":     ["sycophancy", "filler", "closer", "cliche", "puffery", "copula",
+               "chatbot", "punctuation"],
   "decision": "ask",
   "redact":   true
 }
@@ -231,6 +254,20 @@ Everything is matched case-insensitively, and replacements inherit the case of
 what they replace, so "Utilize" becomes "Use". Order matters: long phrases go
 before the words inside them, so `delve into` wins before `delve` sees the
 text.
+
+**Verbs need every form spelled out.** Mapping `demonstrates?` onto `show`
+gives "This show the bug". Use `V()`, which takes base / third-person / past /
+gerund on both sides and emits one rule per form:
+
+```python
+*V("wordy", ("demonstrate", "demonstrates", "demonstrated", "demonstrating"),
+            ("show",        "shows",        "showed",       "showing")),
+```
+
+Pass `None` to skip a form. That is how `highlight` and `underscore` are
+handled — the inflected forms get swapped, but the bare stem is left alone,
+since "Highlight the row" is an ordinary imperative and an underscore is a
+character.
 
 After a deletion the text gets tidied — sentence-initial cuts recapitalize the
 next word, doubled spaces collapse, and `a`/`an` is repaired when a swap

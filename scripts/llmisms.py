@@ -79,6 +79,16 @@ def R(cat, pattern, repl, note):
     return Rule(cat, pattern, repl, note)
 
 
+def V(cat, src, dst):
+    """Expand a verb swap across its forms, keeping agreement intact.
+
+    Both arguments are (base, third-person, past, gerund) tuples; use None to
+    skip a form. Swapping a bare stem is not enough -- "demonstrates" mapped
+    onto "show" gives "This show the bug", so every form needs its own pair.
+    """
+    return [R(cat, r"\b%s\b" % s, d, s) for s, d in zip(src, dst) if s and d]
+
+
 # --- the database ----------------------------------------------------------
 #
 # Order matters. Long phrases come before the words they contain, so
@@ -124,6 +134,9 @@ RULES = [
     R("filler", r"\bi think it(?:'s| is) (?:fair|safe) to say that\s+", CUT, "It's fair to say that"),
     R("filler", r"\bat the end of the day[,]?\s+", CUT, "At the end of the day"),
     R("filler", r"\bwhen (?:it comes down to it|all is said and done)[,]?\s+", CUT, "When it comes down to it"),
+    R("filler", r"\badditionally[,]\s+", "Also, ", "Additionally,"),
+    R("filler", r"\bfurthermore[,]\s+", "Also, ", "Furthermore,"),
+    R("filler", r"\bmoreover[,]\s+", "Also, ", "Moreover,"),
     R("filler", r"\bfirst and foremost[,]?\s+", "First, ", "First and foremost"),
     R("filler", r"\blast but not least[,]?\s+", "Finally, ", "Last but not least"),
     R("filler", r"\bin (?:my|our) (?:humble )?opinion[,]?\s+", CUT, "In my humble opinion"),
@@ -213,6 +226,86 @@ RULES = [
     R("cliche", r"\bdelved into\b", "dug into", "delved into"),
     R("cliche", r"\bdelv(?:e|es|ing)\b", "dig", "delve"),
 
+    # -- puffery: inflating how much the subject matters --------------------
+    # Wikipedia's WP:AILEGACY list. LLMs pad a topic with claims about its
+    # significance, legacy, and place in some broader trend.
+    R("puffery", r"\bmarking an? (?:pivotal|significant|key|major|important|defining)\s+"
+      r"(?:moment|milestone|turning point|shift|chapter)\b", X, "marking a pivotal moment"),
+    R("puffery", r"\brepresent(?:s|ed) an? (?:significant|major|profound|pivotal|key)\s+"
+      r"(?:shift|change|milestone|departure|leap)\b", "is a shift", "represents a significant shift"),
+    R("puffery", r"\bunderscor(?:es|ing|ed) (?:its|the|their|his|her) "
+      r"(?:importance|significance|role|value|impact)\b", "matters", "underscores its importance"),
+    R("puffery", r"\bhighlight(?:s|ing|ed) (?:its|the|their) (?:importance|significance)\b",
+      "matters", "highlights its significance"),
+    R("puffery", r"\breflect(?:s|ing|ed) (?:a |the )?broader\b", "reflects", "reflects broader"),
+    R("puffery", r"\bsetting the stage for\b", "leading to", "setting the stage for"),
+    R("puffery", r"\bcontributing to the broader\b", "adding to the", "contributing to the broader"),
+    R("puffery", r"\bleav(?:es|ing|e) an indelible mark(?: on)?\b", "lasts", "indelible mark"),
+    R("puffery", r"\bdeeply rooted in\b", "rooted in", "deeply rooted in"),
+    R("puffery", r"\ba focal point (?:of|for|in)\b", "a center of", "focal point"),
+    R("puffery", r"\bplays? an? role in\b", "affects", "plays a role in"),
+    R("puffery", r"\bcement(?:s|ing|ed) (?:its|his|her|their) "
+      r"(?:place|role|status|position|legacy|reputation)\b", X, "cementing its place"),
+    R("puffery", r"\ba (?:rich|vibrant|diverse|storied|proud) (?:cultural |local )?"
+      r"(?:heritage|history|tradition)\b", "a history", "rich cultural heritage"),
+    R("puffery", r"\ba diverse (?:array|range|selection) of\b", "a range of", "a diverse array of"),
+    R("puffery", r"\bnestled (?:in|within|among|amid|between)\b", "in", "nestled in"),
+    R("puffery", r"\bin the heart of\b", "in", "in the heart of"),
+    R("puffery", r"\b(?:stunning|breathtaking) natural beauty\b", "scenery", "stunning natural beauty"),
+    R("puffery", r"\bmaintains? an? (?:active|strong|robust) "
+      r"(?:social media |digital |online )?presence\b", "is active online", "active social media presence"),
+    R("puffery", r"\brenowned for\b", "known for", "renowned for"),
+    R("puffery", r"\bwidely (?:regarded|recognized|recognised|considered|hailed) as\b",
+      "seen as", "widely regarded as"),
+    R("puffery", r"\ban? (?:key|pivotal|crucial|major) turning point\b", "a turning point",
+      "key turning point"),
+    R("puffery", r"\bfaces? (?:several |a number of |numerous |many )?challenges\b",
+      "has problems", "faces challenges"),
+    R("puffery", r"\bstands? as an? (?:vibrant|shining|lasting|enduring|powerful)\b", "is a",
+      "stands as a vibrant"),
+
+    # -- copula: LLMs avoid plain "is" and "has" ----------------------------
+    # Wikipedia documents a measurable drop in is/are after 2022, with
+    # marketing verbs standing in for them.
+    R("copula", r"\bboasts an?\b", "has a", "boasts a"),
+    R("copula", r"\bboasts\b", "has", "boasts"),
+    R("copula", r"\b(?:serves|stands|functions|operates|acts) as an?\b", "is a", "serves as a"),
+    R("copula", r"\b(?:serves|stands|functions|operates|acts) as\b", "is", "serves as"),
+    R("copula", r"\bis home to\b", "has", "is home to"),
+    R("copula", r"\brepresents an?\b", "is a", "represents a"),
+    R("copula", r"\bventured into\b", "entered", "ventured into"),
+
+    # -- chatbot: assistant-speak that leaked into the text -----------------
+    R("chatbot", r"\bas of my last (?:knowledge |training )?(?:update|cutoff)"
+      r"[^.,!?\n]{0,40}[.,]\s*", CUT, "as of my last knowledge update"),
+    R("chatbot", r"\bi (?:don't|do not) have (?:specific |any |detailed )?"
+      r"(?:information|data|details|access)\b[^.!?\n]{0,80}[.!?]\s*", X, "I don't have information about"),
+    R("chatbot", r"\bbased on (?:the )?(?:available|provided) "
+      r"(?:information|sources|data|results)[,]?\s*", CUT, "based on available information"),
+    # split by number so the replacement stays grammatical
+    R("chatbot", r"\bare(?: not|n't) (?:widely|extensively|fully|publicly|readily) "
+      r"(?:documented|available|transcribed|disclosed|known|recorded)\b", "are unclear",
+      "are not widely documented"),
+    R("chatbot", r"\bwere(?: not|n't) (?:widely|extensively|fully|publicly|readily) "
+      r"(?:documented|available|transcribed|disclosed|known|recorded)\b", "were unclear",
+      "were not widely documented"),
+    R("chatbot", r"\bwas(?: not|n't) (?:widely|extensively|fully|publicly|readily) "
+      r"(?:documented|available|transcribed|disclosed|known|recorded)\b", "was unclear",
+      "was not widely documented"),
+    R("chatbot", r"\bis(?: not|n't) (?:widely|extensively|fully|publicly|readily) "
+      r"(?:documented|available|transcribed|disclosed|known|recorded)\b", "is unclear",
+      "is not widely documented"),
+    R("chatbot", r"\bin the (?:provided|available) (?:search results|sources|context|documents)\b",
+      "in the sources", "in the provided search results"),
+    R("chatbot", r"\bwould you like me to\b[^.!?\n]{0,100}[.?!]\s*", X, "Would you like me to..."),
+    R("chatbot", r"\bshall i\b[^.!?\n]{0,80}\?\s*", X, "Shall I...?"),
+    R("chatbot", r"\bmy analysis is based on\b[^.!?\n]{0,100}[.!?]\s*", X, "My analysis is based on"),
+    R("chatbot", r"\bmaintains? a low profile\b", "is private", "maintains a low profile"),
+    # placeholders: never rewrite these, you want to see them
+    R("chatbot", r"\[(?:your name|your \w+|entertainer's name|insert[^\]\n]{0,40}|"
+      r"link to [^\]\n]{0,40}|add [^\]\n]{0,40})\]", FLAG, "placeholder text"),
+    R("chatbot", r"\b(?:INSERT|PASTE|SOURCE|REPLACE)_[A-Z0-9_]{3,}\b", FLAG, "placeholder token"),
+
     # -- corporate: meeting-room verbs --------------------------------------
     R("corporate", r"\bcircle back\b", "come back", "circle back"),
     R("corporate", r"\btouch base\b", "talk", "touch base"),
@@ -252,26 +345,62 @@ RULES = [
     R("hype", r"\bprofound(?:ly)?\b", "deep", "profound"),
     R("hype", r"\b(?:crucial|pivotal|paramount)\b", "key", "crucial / pivotal"),
     R("hype", r"\binvaluable\b", "useful", "invaluable"),
-    R("hype", r"\bsupercharge(?:s|d)?\b", "speed up", "supercharge"),
-    R("hype", r"\belevates?\b", "improve", "elevate"),
+    *V("hype", ("supercharge", "supercharges", "supercharged", "supercharging"),
+               ("speed up", "speeds up", "sped up", "speeding up")),
+    *V("hype", ("elevate", "elevates", "elevated", "elevating"),
+               ("improve", "improves", "improved", "improving")),
+    # documented "AI vocabulary" spikes after 2022 (WP:AIVOCAB)
+    R("hype", r"\bvibrant\b", "lively", "vibrant"),
+    R("hype", r"\benduring\b", "lasting", "enduring"),
+    R("hype", r"\brenowned\b", "well-known", "renowned"),
+    R("hype", r"\bvaluable\b", "useful", "valuable"),
+    R("hype", r"\bbreathtaking\b", X, "breathtaking"),
+    *V("hype", ("bolster", "bolsters", "bolstered", "bolstering"),
+               ("boost", "boosts", "boosted", "boosting")),
 
     # -- wordy: long word, short word ---------------------------------------
-    R("wordy", r"\butiliz(?:e|es)\b", "use", "utilize"),
-    R("wordy", r"\butilized\b", "used", "utilized"),
-    R("wordy", r"\butilizing\b", "using", "utilizing"),
-    R("wordy", r"\butilization\b", "use", "utilization"),
-    R("wordy", r"\bleverag(?:e|es)\b", "use", "leverage"),
-    R("wordy", r"\bleveraged\b", "used", "leveraged"),
-    R("wordy", r"\bleveraging\b", "using", "leveraging"),
-    R("wordy", r"\bfacilitates?\b", "help", "facilitate"),
-    R("wordy", r"\bendeavou?rs?\b", "try", "endeavor"),
+    *V("wordy", ("utilize", "utilizes", "utilized", "utilizing"),
+               ("use", "uses", "used", "using")),
+    R("wordy", r"\butiliz(?:ation|ations)\b", "use", "utilization"),
+    *V("wordy", ("leverage", "leverages", "leveraged", "leveraging"),
+               ("use", "uses", "used", "using")),
+    *V("wordy", ("facilitate", "facilitates", "facilitated", "facilitating"),
+               ("help", "helps", "helped", "helping")),
+    *V("wordy", ("endeavor", "endeavors", "endeavored", "endeavoring"),
+               ("try", "tries", "tried", "trying")),
+    *V("wordy", ("endeavour", "endeavours", "endeavoured", "endeavouring"),
+               ("try", "tries", "tried", "trying")),
     R("wordy", r"\bascertain\b", "find out", "ascertain"),
-    R("wordy", r"\bcommences?\b", "start", "commence"),
-    R("wordy", r"\binitiates?\b", "start", "initiate"),
-    R("wordy", r"\bterminates?\b", "end", "terminate"),
-    R("wordy", r"\bdemonstrates?\b", "show", "demonstrate"),
-    R("wordy", r"\bunderscores?\b", "shows", "underscore"),
-    R("wordy", r"\bshowcases?\b", "show", "showcase"),
+    *V("wordy", ("commence", "commences", "commenced", "commencing"),
+               ("start", "starts", "started", "starting")),
+    *V("wordy", ("initiate", "initiates", "initiated", "initiating"),
+               ("start", "starts", "started", "starting")),
+    *V("wordy", ("terminate", "terminates", "terminated", "terminating"),
+               ("end", "ends", "ended", "ending")),
+    *V("wordy", ("demonstrate", "demonstrates", "demonstrated", "demonstrating"),
+               ("show", "shows", "showed", "showing")),
+    # bare "underscore" and "highlight" are left alone: one is a character,
+    # the other an ordinary imperative ("Highlight the row")
+    *V("wordy", (None, "underscores", "underscored", "underscoring"),
+               (None, "shows", "showed", "showing")),
+    *V("wordy", ("showcase", "showcases", "showcased", "showcasing"),
+               ("show", "shows", "showed", "showing")),
+    *V("wordy", (None, "highlights", "highlighted", "highlighting"),
+               (None, "shows", "showed", "showing")),
+    *V("wordy", ("emphasize", "emphasizes", "emphasized", "emphasizing"),
+               ("stress", "stresses", "stressed", "stressing")),
+    *V("wordy", ("enhance", "enhances", "enhanced", "enhancing"),
+               ("improve", "improves", "improved", "improving")),
+    R("wordy", r"\benhancements?\b", "improvement", "enhancement"),
+    *V("wordy", ("foster", "fosters", "fostered", "fostering"),
+               ("build", "builds", "built", "building")),
+    *V("wordy", ("garner", "garners", "garnered", "garnering"),
+               ("get", "gets", "got", "getting")),
+    R("wordy", r"\baligned with\b", "matched", "aligned with"),
+    R("wordy", r"\baligning with\b", "matching", "aligning with"),
+    R("wordy", r"\baligns with\b", "matches", "aligns with"),
+    R("wordy", r"\balign with\b", "match", "align with"),
+    R("wordy", r"\binterplay\b", "interaction", "interplay"),
     R("wordy", r"\bexemplifies\b", "shows", "exemplify"),
     R("wordy", r"\bnumerous\b", "many", "numerous"),
     R("wordy", r"\bmyriad(?: of)?\b", "many", "myriad"),
@@ -284,13 +413,20 @@ RULES = [
     R("wordy", r"\bapproximately\b", "about", "approximately"),
     R("wordy", r"\bsufficient\b", "enough", "sufficient"),
     R("wordy", r"\badditional\b", "more", "additional"),
-    R("wordy", r"\bassists?\b", "help", "assist"),
-    R("wordy", r"\battempts? to\b", "try to", "attempt to"),
-    R("wordy", r"\bobtains?\b", "get", "obtain"),
-    R("wordy", r"\bacquires?\b", "get", "acquire"),
-    R("wordy", r"\bnecessitates?\b", "need", "necessitate"),
-    R("wordy", r"\bpermits?\b", "let", "permit"),
-    R("wordy", r"\bensures?\b", "make sure", "ensure"),
+    *V("wordy", ("assist", "assists", "assisted", "assisting"),
+               ("help", "helps", "helped", "helping")),
+    R("wordy", r"\battempts to\b", "tries to", "attempts to"),
+    R("wordy", r"\battempt to\b", "try to", "attempt to"),
+    *V("wordy", ("obtain", "obtains", "obtained", "obtaining"),
+               ("get", "gets", "got", "getting")),
+    *V("wordy", ("acquire", "acquires", "acquired", "acquiring"),
+               ("get", "gets", "got", "getting")),
+    *V("wordy", ("necessitate", "necessitates", "necessitated", "necessitating"),
+               ("need", "needs", "needed", "needing")),
+    *V("wordy", ("permit", "permits", "permitted", "permitting"),
+               ("let", "lets", "let", "letting")),
+    *V("wordy", ("ensure", "ensures", "ensured", "ensuring"),
+               ("make sure", "makes sure", "made sure", "making sure")),
     R("wordy", r"\bmethodolog(?:y|ies)\b", "method", "methodology"),
     R("wordy", r"\boptim(?:al|um)\b", "best", "optimal"),
     R("wordy", r"\bcurrently\b", "now", "currently"),
@@ -303,6 +439,12 @@ RULES = [
 
     # -- punctuation: the glyphs that give it away --------------------------
     R("punctuation", r"[ \t]*—[ \t]*", em_dash, "em-dash"),
+    R("punctuation", "[“”]", '"', "curly double quote"),
+    R("punctuation", "[‘’]", "'", "curly quote / apostrophe"),
+    R("punctuation", "…", "...", "ellipsis character"),
+    # a horizontal rule sitting above a heading: Markdown habit, pure noise
+    R("punctuation", r"(?m)^(?:-{3,}|\*{3,}|_{3,})[ \t]*\n\s*\n(?=#{1,6} )", X,
+      "thematic break before heading"),
 
     # -- structure: flag only, the fix needs judgment -----------------------
     R("structure", r"\bnot just\b[^.!?\n]{0,80}?\bbut\b", FLAG, "not just X, but Y"),
@@ -313,6 +455,22 @@ RULES = [
     R("structure", r"(?m)^\s*[-*]\s+\*\*[^*\n]+\*\*\s*[-:]", FLAG, "bold-lead bullet"),
     R("structure", r"\blet(?:'s| us)\b", FLAG, "let's (collaborative we)"),
     R("structure", r"\bwe(?:'ll| will|'ve| have)\b", FLAG, "we (when you mean you or I)"),
+    R("structure", r"\bnot an? \w+[^.!?\n]{0,40}?\bbut (?:a|an|rather)\b", FLAG, "not a X but a Y"),
+    R("structure", r"\bno \w+[^,\n]{0,30}, no \w+[^,\n]{0,30}, just\b", FLAG, "no X, no Y, just Z"),
+    # a present participle bolted onto the end of a sentence, carrying a
+    # claim about significance that nothing in the text supports
+    R("structure", r",\s+(?:highlighting|showcasing|reflecting|underscoring|emphasizing|"
+      r"demonstrating|illustrating|contributing|solidifying|cementing|fostering|embodying|"
+      r"marking|serving|creating|offering|ensuring)\b[^.!?\n]{0,120}[.!?]",
+      FLAG, "trailing -ing analysis"),
+    # "adjective, adjective, and adjective" padding, narrowed to abstract
+    # nouns so ordinary lists do not trip it
+    R("structure", r"\b\w{4,}(?:ing|ity|ness|ance|ence|ment|tion), "
+      r"\w{4,}(?:ing|ity|ness|ance|ence|ment|tion),? and "
+      r"\w{4,}(?:ing|ity|ness|ance|ence|ment|tion)\b", FLAG, "rule of three (abstract nouns)"),
+    R("structure", r"(?m)^#{1,6} +(?:[A-Z][a-z]+ ){2,}[A-Z][a-z]+[ \t]*$", FLAG, "title-case heading"),
+    R("structure", r"\bdespite (?:its|their|these)\b[^.!?\n]{0,60}?\bfac(?:es|ing|e)\b",
+      FLAG, "Despite its X, Y faces challenges"),
 
     # -- emoji: off by default, tables and checklists use them on purpose ---
     R("emoji", r"[\U0001F300-\U0001FAFF\U0001F1E6-\U0001F1FF←-⇿⌀-⏿"
@@ -324,8 +482,8 @@ for _r in RULES:
     if _r.cat not in CATEGORIES:
         CATEGORIES.append(_r.cat)
 
-DEFAULT_ON = {"sycophancy", "filler", "closer", "cliche", "corporate", "hype", "wordy",
-              "punctuation"}
+DEFAULT_ON = {"sycophancy", "filler", "closer", "cliche", "puffery", "copula", "chatbot",
+              "corporate", "hype", "wordy", "punctuation"}
 
 
 # --- protecting code -------------------------------------------------------
@@ -562,6 +720,23 @@ CASES = [
     ("Quote.\n— Anonymous", "Quote.\n— Anonymous"),
     ("Wait, — that is wrong.", "Wait, that is wrong."),
     ("Use `a — b` verbatim.", "Use `a — b` verbatim."),
+    # from Wikipedia:Signs of AI writing
+    ("The library boasts a clean API.", "The library has a clean API."),
+    ("The cache serves as a buffer.", "The cache is a buffer."),
+    ("Nestled in the heart of the repo.", "In the repo."),
+    ("It underscores its importance for users.", "It matters for users."),
+    ("The town faces several challenges.", "The town has problems."),
+    ("Additionally, the flag is optional.", "Also, the flag is optional."),
+    ("It garnered praise and enduring support.", "It got praise and lasting support."),
+    ("As of my last knowledge update, this is unknown.", "This is unknown."),
+    ("The details aren't widely documented.", "The details are unclear."),
+    ("The date isn't widely documented.", "The date is unclear."),
+    ("Say “hello” and it’s done…", "Say \"hello\" and it's done..."),
+    # verb agreement: the replacement has to match the form it replaces
+    ("This demonstrates the bug.", "This shows the bug."),
+    ("The report highlights three issues.", "The report shows three issues."),
+    ("Highlight the selected row.", "Highlight the selected row."),
+    ("Use an underscore in the name.", "Use an underscore in the name."),
 ]
 
 
