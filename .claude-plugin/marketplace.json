@@ -1,0 +1,16 @@
+{
+  "name": "claude-muffle",
+  "description": "Make Claude sound less Claude-y.",
+  "owner": {
+    "name": "Yeraze",
+    "url": "https://github.com/Yeraze"
+  },
+  "plugins": [
+    {
+      "name": "muffle",
+      "source": "./",
+      "category": "writing",
+      "tags": ["style", "prose", "hooks", "output", "markdown"]
+    }
+  ]
+}

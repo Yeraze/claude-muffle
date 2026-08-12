@@ -1,0 +1,14 @@
+{
+  "name": "muffle",
+  "displayName": "Claude Muffle",
+  "version": "0.1.0",
+  "description": "Strips LLM tics from Claude's terminal output and the markdown it writes. Never touches code.",
+  "author": {
+    "name": "Yeraze",
+    "url": "https://github.com/Yeraze"
+  },
+  "homepage": "https://github.com/Yeraze/claude-muffle",
+  "repository": "https://github.com/Yeraze/claude-muffle",
+  "license": "GPL-3.0",
+  "keywords": ["writing", "style", "hooks", "prose", "linter", "output"]
+}
