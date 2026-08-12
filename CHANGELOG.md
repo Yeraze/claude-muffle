@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0
+
+Version bump only. No rule or behavior changes since 0.3.0.
+
 ## 0.3.0
 
 Rules mined from Wikipedia's [Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing).
