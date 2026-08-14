@@ -51,12 +51,12 @@ from llmisms import CATEGORIES, scrub  # noqa: E402
 DEFAULTS = {
     # Terminal text is throwaway, so it gets the full treatment.
     "display": ["sycophancy", "filler", "closer", "cliche", "puffery", "copula",
-                "chatbot", "punctuation", "corporate", "hype", "wordy"],
+                "chatbot", "punctuation", "contractions", "corporate", "hype", "wordy"],
     # Files are real, so they get the rules with the fewest false positives.
     # Word swaps like "ensure" -> "make sure" and the meeting-room verbs stay
     # off on disk until you opt in.
     "file": ["sycophancy", "filler", "closer", "cliche", "puffery", "copula",
-             "chatbot", "punctuation"],
+             "chatbot", "punctuation", "contractions"],
     "decision": "ask",
     "redact": True,
 }

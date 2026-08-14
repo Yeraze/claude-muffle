@@ -11,8 +11,8 @@ It never touches your code.
 
 becomes
 
-> Developers use a full suite of tools. This solid framework lets you smoothly
-> dig into distributed systems.
+> Developers rely on a thorough suite of tools. This solid framework lets you
+> smoothly dig into distributed systems.
 
 ## Install
 
@@ -47,7 +47,7 @@ path runs a smaller, safer rule set, and asks before applying — see below.
 
 ## The rules
 
-331 rules in thirteen categories. Many come from Wikipedia's
+364 rules in fourteen categories. Many come from Wikipedia's
 [Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing),
 which catalogues the tells its editors use to spot LLM text.
 
@@ -60,6 +60,7 @@ which catalogues the tells its editors use to spot LLM text.
 | `puffery` | "marking a pivotal moment", "nestled in", "faces challenges" | on | on |
 | `copula` | boasts → has, serves as → is, is home to → has | on | on |
 | `chatbot` | "As of my last knowledge update", "Would you like me to…" | on | on |
+| `contractions` | it is → it's, do not → don't, cannot → can't | on | on |
 | `punctuation` | em-dashes → commas, curly quotes → straight | on | on |
 | `corporate` | "circle back", "reach out", "synergy" | on | off |
 | `hype` | "very", "robust", "seamless", "vibrant", "enduring" | on | off |
@@ -77,10 +78,45 @@ some broader trend.
 10% in academic writing after 2022, replaced by marketing verbs. So `boasts a`
 becomes `has a`, `serves as` becomes `is`.
 
-**`chatbot`** catches assistant-speak that leaked into the prose — knowledge
-cutoff disclaimers, "Would you like me to…", and `[Your Name]`-style
+**`chatbot`** catches assistant-speak that leaked into the prose, knowledge
+cutoff disclaimers, "Would you like me to...", and `[Your Name]`-style
 placeholders. Placeholders are flag-only: you want to *see* those, not have
 them quietly deleted.
+
+## Uniformity is its own tell
+
+Rewriting mechanically creates new patterns. Two rules push back on that.
+
+**Synonym rotation.** `utilize` and `leverage` both mean "use", so mapping
+both onto "use" leaves prose that repeats one word unnaturally:
+
+```
+We utilize the cache and leverage the index.
+  → We rely on the cache and use the index.      (not "use … use")
+```
+
+**Partial application.** Deleting *every* "very" and "really" reads as
+surgically terse. Intensifiers are dropped about 75% of the time, so some
+survive the way they would in real writing.
+
+Both choices are keyed off a hash of the surrounding text, not a random
+number. The same input always produces the same output, so the hooks stay
+deterministic and the tests stay meaningful, but two occurrences in different
+sentences usually differ. Python's `hash()` is salted per process, so
+`hashlib.blake2b` is used instead; the self-test pins specific outputs, and
+running it under `PYTHONHASHSEED=random` still passes.
+
+### Contractions
+
+Avoiding contractions is one of the loudest register tells, and contracting
+changes nothing about meaning. Two guards:
+
+- **`have` only contracts as an auxiliary.** "We have seen this" → "We've seen
+  this", but "We have three options" is left alone.
+- **Shouting is preserved.** `DO NOT delete this` stays, because the caps are
+  doing work.
+
+`that is,` is also skipped, since that's an appositive, not a copula.
 
 ### Punctuation
 
@@ -92,8 +128,8 @@ heading is dropped, and an em-dash becomes a comma:
 | before | after |
 | --- | --- |
 | `The plan — such as it is — ships Friday.` | `The plan, such as it is, ships Friday.` |
-| `It is fast—cheap too.` | `It is fast, cheap too.` |
-| `Wait, — that is wrong.` | `Wait, that is wrong.` |
+| `It is fast—cheap too.` | `It's fast, cheap too.` |
+| `Wait, — that is wrong.` | `Wait, that's wrong.` |
 | `Trailing thought —` | `Trailing thought` |
 
 Four cases are left alone: numeric ranges (`2019—2024`), line-initial dashes
@@ -103,7 +139,7 @@ are never touched.
 Turn it off by dropping `"punctuation"` from `display`, `file`, or both in
 `.claude-muffle.json`.
 
-Files get the conservative set on purpose. Those four categories remove
+Files get the conservative set on purpose. Those categories remove
 throat-clearing that nobody misses; the word-level swaps have more false
 positives, and a bad rewrite on disk is permanent.
 
@@ -135,9 +171,9 @@ in `$HOME` to apply it everywhere:
 ```json
 {
   "display":  ["sycophancy", "filler", "closer", "cliche", "puffery", "copula",
-               "chatbot", "punctuation", "corporate", "hype", "wordy"],
+               "chatbot", "punctuation", "contractions", "corporate", "hype", "wordy"],
   "file":     ["sycophancy", "filler", "closer", "cliche", "puffery", "copula",
-               "chatbot", "punctuation"],
+               "chatbot", "punctuation", "contractions"],
   "decision": "ask",
   "redact":   true
 }
@@ -184,7 +220,7 @@ llmisms.py -i doc.md        # rewrite in place
 llmisms.py --on all doc.md  # every category, including emoji
 llmisms.py --off wordy doc.md
 cat doc.md | llmisms.py     # or pipe it
-llmisms.py --selftest       # 16 cases
+llmisms.py --selftest       # 45 cases
 ```
 
 `--check` prints `path:line  category  matched-text  fix` and exits non-zero
@@ -240,15 +276,31 @@ R("filler", r"\bit(?:'s| is) worth noting that\s+", CUT, "It's worth noting that
 R("structure", r"\bnot just\b[^.!?\n]{0,80}?\bbut\b", FLAG, "not just X, but Y"),
 ```
 
-A replacement is a string, one of three markers, or a function:
+A replacement is a string, a tuple, one of three markers, or a function:
 
-- a plain string — swap it in, inheriting the case of what it replaced
-- `X` — delete it, for mid-sentence words like "very"
-- `CUT` — delete it and capitalize what follows, for sentence openers
-- `FLAG` — report only, never rewrite
+- a plain string, swap it in, inheriting the case of what it replaced
+- a **tuple of strings**, rotate between them, chosen stably from context
+- `X`, delete it, for mid-sentence words like "very"
+- `CUT`, delete it and capitalize what follows, for sentence openers
+- `FLAG`, report only, never rewrite
 - a function taking the match and returning the replacement, for rules that
-  need to see what surrounds the match. `em_dash` is the one that does this;
-  add a label for it in `CALLABLE_LABELS` so `--list` can describe it.
+  need to see what surrounds the match. `em_dash`, `contract()`, and
+  `sometimes()` all work this way; register a label in `CALLABLE_LABELS` so
+  `--list` can describe it.
+
+```python
+R("hype", r"\brobust(?:ly)?\b", ("solid", "sturdy", "reliable"), "robust"),
+R("hype", r"\b(?:very|really)\s+", sometimes(0.75, "(delete 75%)"), "very"),
+R("contractions", r"\bdo not\b", contract("don't"), "do not"),
+```
+
+Rotation works inside `V()` too, pass a tuple in any form slot, and agreement
+still holds:
+
+```python
+*V("wordy", ("utilize",          "utilizes",            ...),
+            (("use", "rely on"), ("uses", "relies on"), ...)),
+```
 
 Everything is matched case-insensitively, and replacements inherit the case of
 what they replace, so "Utilize" becomes "Use". Order matters: long phrases go

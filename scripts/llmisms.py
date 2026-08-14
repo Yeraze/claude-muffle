@@ -24,6 +24,7 @@ variable named `leverage` survives untouched.
 """
 
 import argparse
+import hashlib
 import re
 import sys
 
@@ -35,8 +36,52 @@ FLAG = None   # report only, never rewrite
 
 CAPFIX = "\x01"
 
-# A replacement can also be a function taking the match and returning the
-# replacement text, for rules that need to look at what surrounds the match.
+# A replacement can also be:
+#   a tuple of strings  -- rotate between them, so one word does not collapse
+#                          onto one replacement everywhere (see `pick`)
+#   a function          -- for rules that need to see what surrounds the match
+CALLABLE_LABELS = {}
+
+
+def _roll(m, salt=""):
+    """A stable number in [0, 1) derived from the match and its context.
+
+    Uniform output is itself a tell: swapping every "utilize" and every
+    "leverage" onto "use" leaves prose that repeats one word unnaturally, and
+    deleting every single "very" reads as surgically terse. So some rules vary
+    what they do. Varying it randomly would make the hooks nondeterministic
+    and untestable, so the choice is keyed off the surrounding text: the same
+    input always gives the same output, but two occurrences in different
+    sentences usually differ.
+
+    Python's hash() is salted per process, so it cannot be used here.
+    """
+    seed = m.string[max(0, m.start() - 40):m.start()] + m.group(0) + salt
+    digest = hashlib.blake2b(seed.encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "big") / float(1 << 64)
+
+
+def pick(options, m):
+    """Choose one of several replacements, stably, from context."""
+    return options[int(_roll(m) * len(options)) % len(options)]
+
+
+def sometimes(rate, label):
+    """Delete the match `rate` of the time, keep it otherwise."""
+    def repl(m):
+        return "" if _roll(m, "drop") < rate else m.group(0)
+    CALLABLE_LABELS[repl] = label
+    return repl
+
+
+def contract(short):
+    """Contract, unless the writer shouted it -- "DO NOT" is emphasis."""
+    def repl(m):
+        if m.group(0).isupper():
+            return m.group(0)
+        return _match_case(m.group(0), short)
+    CALLABLE_LABELS[repl] = "-> " + short.strip()
+    return repl
 
 
 def em_dash(m):
@@ -61,8 +106,14 @@ def em_dash(m):
     return ", "
 
 
-# Display labels for function replacements, used by --list and --check.
-CALLABLE_LABELS = {em_dash: "-> , (context aware)"}
+CALLABLE_LABELS[em_dash] = "-> , (context aware)"
+
+# Past participles, for telling auxiliary "have" from main-verb "have".
+PARTICIPLE = (r"(?:been|had|got|gotten|done|seen|made|found|taken|given|written|read|set|put|"
+              r"come|become|run|built|kept|left|sent|told|thought|brought|bought|caught|taught|"
+              r"held|meant|met|paid|said|shown|known|grown|drawn|chosen|broken|spoken|driven|"
+              r"risen|fallen|eaten|begun|gone|lost|won|felt|heard|let|hit|cut|shut|spent|stood|"
+              r"understood|\w+ed)")
 
 
 class Rule:
@@ -322,7 +373,8 @@ RULES = [
 
     # -- hype: marketing adjectives and dead intensifiers -------------------
     R("hype", r"\b(?:very|really|truly|extremely|incredibly|highly|quite|remarkably|"
-      r"exceptionally|tremendously|immensely)\s+", X, "very / really / incredibly"),
+      r"exceptionally|tremendously|immensely)\s+", sometimes(0.75, "(delete 75%)"),
+      "very / really / incredibly"),
     R("hype", r"\b(?:absolutely|completely|totally|utterly|entirely|thoroughly)\s+(?=\w)", X, "absolutely"),
     R("hype", r"\b(?:definitely|certainly|undoubtedly|unquestionably|surely)\s+", X, "definitely"),
     R("hype", r"\b(?:notably|importantly|crucially|significantly|interestingly)[,]\s+", X, "Notably,"),
@@ -333,25 +385,25 @@ RULES = [
     R("hype", r"\bindustry[- ]leading\b", X, "industry-leading"),
     R("hype", r"\b(?:revolutionary|groundbreaking|transformative|unparalleled|unprecedented)\s+", X,
       "revolutionary / groundbreaking"),
-    R("hype", r"\brobust(?:ly)?\b", "solid", "robust"),
-    R("hype", r"\bseamless\b", "smooth", "seamless"),
+    R("hype", r"\brobust(?:ly)?\b", ("solid", "sturdy", "reliable"), "robust"),
+    R("hype", r"\bseamless\b", ("smooth", "clean"), "seamless"),
     R("hype", r"\bseamlessly\b", "smoothly", "seamlessly"),
     R("hype", r"\beffortless\b", "easy", "effortless"),
     R("hype", r"\beffortlessly\b", "easily", "effortlessly"),
-    R("hype", r"\bcomprehensive(?:ly)?\b", "full", "comprehensive"),
-    R("hype", r"\bmeticulous\b", "careful", "meticulous"),
+    R("hype", r"\bcomprehensive(?:ly)?\b", ("full", "complete", "thorough"), "comprehensive"),
+    R("hype", r"\bmeticulous\b", ("careful", "precise"), "meticulous"),
     R("hype", r"\bmeticulously\b", "carefully", "meticulously"),
-    R("hype", r"\bintricate\b", "complex", "intricate"),
+    R("hype", r"\bintricate\b", ("complex", "detailed", "involved"), "intricate"),
     R("hype", r"\bprofound(?:ly)?\b", "deep", "profound"),
-    R("hype", r"\b(?:crucial|pivotal|paramount)\b", "key", "crucial / pivotal"),
-    R("hype", r"\binvaluable\b", "useful", "invaluable"),
+    R("hype", r"\b(?:crucial|pivotal|paramount)\b", ("key", "central", "main"), "crucial / pivotal"),
+    R("hype", r"\binvaluable\b", ("useful", "handy"), "invaluable"),
     *V("hype", ("supercharge", "supercharges", "supercharged", "supercharging"),
                ("speed up", "speeds up", "sped up", "speeding up")),
     *V("hype", ("elevate", "elevates", "elevated", "elevating"),
                ("improve", "improves", "improved", "improving")),
     # documented "AI vocabulary" spikes after 2022 (WP:AIVOCAB)
-    R("hype", r"\bvibrant\b", "lively", "vibrant"),
-    R("hype", r"\benduring\b", "lasting", "enduring"),
+    R("hype", r"\bvibrant\b", ("lively", "bright"), "vibrant"),
+    R("hype", r"\benduring\b", ("lasting", "durable"), "enduring"),
     R("hype", r"\brenowned\b", "well-known", "renowned"),
     R("hype", r"\bvaluable\b", "useful", "valuable"),
     R("hype", r"\bbreathtaking\b", X, "breathtaking"),
@@ -360,10 +412,12 @@ RULES = [
 
     # -- wordy: long word, short word ---------------------------------------
     *V("wordy", ("utilize", "utilizes", "utilized", "utilizing"),
-               ("use", "uses", "used", "using")),
+               (("use", "rely on"), ("uses", "relies on"),
+                ("used", "relied on"), ("using", "relying on"))),
     R("wordy", r"\butiliz(?:ation|ations)\b", "use", "utilization"),
     *V("wordy", ("leverage", "leverages", "leveraged", "leveraging"),
-               ("use", "uses", "used", "using")),
+               (("use", "draw on"), ("uses", "draws on"),
+                ("used", "drew on"), ("using", "drawing on"))),
     *V("wordy", ("facilitate", "facilitates", "facilitated", "facilitating"),
                ("help", "helps", "helped", "helping")),
     *V("wordy", ("endeavor", "endeavors", "endeavored", "endeavoring"),
@@ -402,19 +456,20 @@ RULES = [
     R("wordy", r"\balign with\b", "match", "align with"),
     R("wordy", r"\binterplay\b", "interaction", "interplay"),
     R("wordy", r"\bexemplifies\b", "shows", "exemplify"),
-    R("wordy", r"\bnumerous\b", "many", "numerous"),
+    R("wordy", r"\bnumerous\b", ("many", "plenty of"), "numerous"),
     R("wordy", r"\bmyriad(?: of)?\b", "many", "myriad"),
     R("wordy", r"\ba plethora of\b", "many", "a plethora of"),
     R("wordy", r"\ba multitude of\b", "many", "a multitude of"),
     R("wordy", r"\ban abundance of\b", "plenty of", "an abundance of"),
     R("wordy", r"\ba wealth of\b", "plenty of", "a wealth of"),
-    R("wordy", r"\bsubstantial\b", "large", "substantial"),
-    R("wordy", r"\bconsiderable\b", "large", "considerable"),
-    R("wordy", r"\bapproximately\b", "about", "approximately"),
+    R("wordy", r"\bsubstantial\b", ("large", "big", "sizable"), "substantial"),
+    R("wordy", r"\bconsiderable\b", ("large", "big"), "considerable"),
+    R("wordy", r"\bapproximately\b", ("about", "roughly", "around"), "approximately"),
     R("wordy", r"\bsufficient\b", "enough", "sufficient"),
-    R("wordy", r"\badditional\b", "more", "additional"),
+    R("wordy", r"\badditional\b", ("more", "extra"), "additional"),
     *V("wordy", ("assist", "assists", "assisted", "assisting"),
-               ("help", "helps", "helped", "helping")),
+               (("help", "support"), ("helps", "supports"),
+                ("helped", "supported"), ("helping", "supporting"))),
     R("wordy", r"\battempts to\b", "tries to", "attempts to"),
     R("wordy", r"\battempt to\b", "try to", "attempt to"),
     *V("wordy", ("obtain", "obtains", "obtained", "obtaining"),
@@ -431,11 +486,51 @@ RULES = [
     R("wordy", r"\boptim(?:al|um)\b", "best", "optimal"),
     R("wordy", r"\bcurrently\b", "now", "currently"),
     R("wordy", r"\bpresently\b", "now", "presently"),
-    R("wordy", r"\bfrequently\b", "often", "frequently"),
-    R("wordy", r"\boccasionally\b", "sometimes", "occasionally"),
-    R("wordy", r"\btypically\b", "usually", "typically"),
+    R("wordy", r"\bfrequently\b", ("often", "regularly"), "frequently"),
+    R("wordy", r"\boccasionally\b", ("sometimes", "now and then"), "occasionally"),
+    R("wordy", r"\btypically\b", ("usually", "normally", "generally"), "typically"),
     R("wordy", r"\bregarding\b", "about", "regarding"),
     R("wordy", r"\b(?:basically|essentially|literally|actually|simply)\s+", X, "basically / essentially"),
+
+    # -- contractions: the formal register LLMs default into ----------------
+    # Avoiding contractions is one of the loudest tells, and contracting
+    # changes nothing about meaning. Negations first, so "it is not" lands on
+    # "it's not" rather than "it isn't".
+    R("contractions", r"\bdo not\b", contract("don't"), "do not"),
+    R("contractions", r"\bdoes not\b", contract("doesn't"), "does not"),
+    R("contractions", r"\bdid not\b", contract("didn't"), "did not"),
+    R("contractions", r"\bis not\b", contract("isn't"), "is not"),
+    R("contractions", r"\bare not\b", contract("aren't"), "are not"),
+    R("contractions", r"\bwas not\b", contract("wasn't"), "was not"),
+    R("contractions", r"\bwere not\b", contract("weren't"), "were not"),
+    R("contractions", r"\bcan ?not\b", contract("can't"), "cannot"),
+    R("contractions", r"\bwill not\b", contract("won't"), "will not"),
+    R("contractions", r"\bwould not\b", contract("wouldn't"), "would not"),
+    R("contractions", r"\bshould not\b", contract("shouldn't"), "should not"),
+    R("contractions", r"\bcould not\b", contract("couldn't"), "could not"),
+    R("contractions", r"\bhas not\b", contract("hasn't"), "has not"),
+    R("contractions", r"\bhave not\b", contract("haven't"), "have not"),
+    R("contractions", r"\bhad not\b", contract("hadn't"), "had not"),
+    R("contractions", r"\bit is\b(?=\s+[\w\x00])", contract("it's"), "it is"),
+    R("contractions", r"\bthat is\b(?!,)(?=\s+[\w\x00])", contract("that's"), "that is"),
+    R("contractions", r"\bthere is\b(?=\s+[\w\x00])", contract("there's"), "there is"),
+    R("contractions", r"\bhere is\b(?=\s+[\w\x00])", contract("here's"), "here is"),
+    R("contractions", r"\bwhat is\b(?=\s+[\w\x00])", contract("what's"), "what is"),
+    R("contractions", r"\byou are\b(?=\s+[\w\x00])", contract("you're"), "you are"),
+    R("contractions", r"\bwe are\b(?=\s+[\w\x00])", contract("we're"), "we are"),
+    R("contractions", r"\bthey are\b(?=\s+[\w\x00])", contract("they're"), "they are"),
+    R("contractions", r"\bi am\b(?=\s+[\w\x00])", contract("I'm"), "I am"),
+    R("contractions", r"\byou will\b(?=\s+[\w\x00])", contract("you'll"), "you will"),
+    R("contractions", r"\bwe will\b(?=\s+[\w\x00])", contract("we'll"), "we will"),
+    R("contractions", r"\bit will\b(?=\s+[\w\x00])", contract("it'll"), "it will"),
+    R("contractions", r"\bthey will\b(?=\s+[\w\x00])", contract("they'll"), "they will"),
+    R("contractions", r"\blet us\b(?=\s+[\w\x00])", contract("let's"), "let us"),
+    # have/has only contract as auxiliaries. "We have three options" must not
+    # become "We've three options", so require a past participle after it.
+    R("contractions", r"\byou have (?=" + PARTICIPLE + r"\b)", contract("you've "), "you have V-ed"),
+    R("contractions", r"\bwe have (?=" + PARTICIPLE + r"\b)", contract("we've "), "we have V-ed"),
+    R("contractions", r"\bthey have (?=" + PARTICIPLE + r"\b)", contract("they've "), "they have V-ed"),
+    R("contractions", r"\bi have (?=" + PARTICIPLE + r"\b)", contract("I've "), "I have V-ed"),
 
     # -- punctuation: the glyphs that give it away --------------------------
     R("punctuation", r"[ \t]*—[ \t]*", em_dash, "em-dash"),
@@ -483,7 +578,7 @@ for _r in RULES:
         CATEGORIES.append(_r.cat)
 
 DEFAULT_ON = {"sycophancy", "filler", "closer", "cliche", "puffery", "copula", "chatbot",
-              "corporate", "hype", "wordy", "punctuation"}
+              "corporate", "hype", "wordy", "punctuation", "contractions"}
 
 
 # --- protecting code -------------------------------------------------------
@@ -533,6 +628,8 @@ def describe(rule):
         return "(needs a human)"
     if callable(rule.repl):
         return CALLABLE_LABELS.get(rule.repl, "(context aware)")
+    if isinstance(rule.repl, tuple):
+        return " / ".join(rule.repl)
     if rule.repl in (X, CUT):
         return "(delete)"
     return rule.repl
@@ -587,14 +684,20 @@ def scrub(text, enabled=None, articles=True):
     counts = {}
     for rule in _active(enabled):
         if callable(rule.repl):
-            masked, n = rule.pat.subn(rule.repl, masked)
+            new, n = rule.pat.subn(rule.repl, masked)
+        elif isinstance(rule.repl, tuple):
+            new, n = rule.pat.subn(
+                lambda m, r=rule: _match_case(m.group(0), pick(r.repl, m)), masked)
         elif rule.repl in (X, CUT):
-            masked, n = rule.pat.subn(rule.repl, masked)
+            new, n = rule.pat.subn(rule.repl, masked)
         else:
-            masked, n = rule.pat.subn(
+            new, n = rule.pat.subn(
                 lambda m, r=rule: _match_case(m.group(0), r.repl), masked)
-        if n:
+        # count edits, not matches: a rule that fires but leaves the text
+        # alone (a kept "very", a shouted "DO NOT") did not change anything
+        if new != masked:
             counts[rule.note] = counts.get(rule.note, 0) + n
+        masked = new
     masked = tidy(masked)
     if articles:
         masked = fix_articles(masked)
@@ -698,16 +801,16 @@ CASES = [
     ("You're absolutely right, the path is wrong.", "The path is wrong."),
     ("It's important to note that the file is missing.", "The file is missing."),
     ("We utilize a robust framework to facilitate this.",
-     "We use a solid framework to help this."),
+     "We rely on a sturdy framework to help this."),
     ("Let's delve into the realm of caching.", "Let's dig into caching."),
     ("This is a very robust and incredibly seamless solution.",
-     "This is a solid and smooth solution."),
+     "This is a sturdy and clean solution."),
     ("In order to run it, use the flag.", "To run it, use the flag."),
     ("I hope this helps! Let me know if you have questions.", ""),
-    ("Use `leverage` and utilize it.", "Use `leverage` and use it."),
+    ("Use `leverage` and utilize it.", "Use `leverage` and rely on it."),
     ("```py\nx = utilize()\n```", "```py\nx = utilize()\n```"),
     ("It offers an abundance of options.", "It offers plenty of options."),
-    ("A comprehensive guide.", "A full guide."),
+    ("A comprehensive guide.", "A complete guide."),
     ("Due to the fact that it failed, we stopped.", "Because it failed, we stopped."),
     ("First and foremost, check the logs.", "First, check the logs."),
     ("See https://example.com/utilize-this for more.",
@@ -715,10 +818,10 @@ CASES = [
     # em-dash
     ("We ship it — soon.", "We ship it, soon."),
     ("The fix — a one-liner — landed.", "The fix, a one-liner, landed."),
-    ("It is fast—cheap too.", "It is fast, cheap too."),
+    ("It is fast—cheap too.", "It's fast, cheap too."),
     ("The range 1914—1918 held.", "The range 1914—1918 held."),
     ("Quote.\n— Anonymous", "Quote.\n— Anonymous"),
-    ("Wait, — that is wrong.", "Wait, that is wrong."),
+    ("Wait, — that is wrong.", "Wait, that's wrong."),
     ("Use `a — b` verbatim.", "Use `a — b` verbatim."),
     # from Wikipedia:Signs of AI writing
     ("The library boasts a clean API.", "The library has a clean API."),
@@ -737,6 +840,22 @@ CASES = [
     ("The report highlights three issues.", "The report shows three issues."),
     ("Highlight the selected row.", "Highlight the selected row."),
     ("Use an underscore in the name.", "Use an underscore in the name."),
+    # contractions
+    ("It is not a bug.", "It isn't a bug."),
+    ("You are correct and we cannot ship.", "You're correct and we can't ship."),
+    ("We have seen this before.", "We've seen this before."),
+    ("We have three options.", "We have three options."),   # main verb, not auxiliary
+    ("DO NOT delete this.", "DO NOT delete this."),          # shouted, so left alone
+    # a stranded copula cannot contract
+    ("The plan — such as it is — ships Friday.", "The plan, such as it is, ships Friday."),
+    ("Here it is.", "Here it is."),
+    ("Yes, we are.", "Yes, we are."),
+    # rotation: two words that both map to "use" must not both become "use".
+    # These also pin the hash, so a switch to Python's salted hash() would fail.
+    ("We utilize the cache and leverage the index.",
+     "We rely on the cache and use the index."),
+    ("A robust design, a robust parser, and robust tooling.",
+     "A solid design, a reliable parser, and solid tooling."),
 ]
 
 

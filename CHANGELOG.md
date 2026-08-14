@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.5.0
+
+Shifts the goal from removing tics to making prose read human. Rewriting
+mechanically was creating a new tell of its own.
+
+**Fixed: many-to-one swaps flattened vocabulary.** `utilize` and `leverage`
+both mapped to "use", so "We utilize the cache and leverage the index" became
+"We use the cache and use the index", unnatural repetition, one tell traded
+for another. Replacements can now be a tuple, and the choice rotates.
+
+**New: `contractions`.** Avoiding contractions is one of the loudest register
+tells and contracting changes no meaning. `it is` → `it's`, `do not` →
+`don't`, `cannot` → `can't`. Three guards: `have` only contracts as an
+auxiliary ("We have three options" is left alone), shouted text is preserved
+(`DO NOT`), and a stranded copula never contracts ("such as it is", "here it
+is").
+
+**New: partial application.** Deleting every "very" and "really" reads as
+surgically terse, so intensifiers are now dropped about 75% of the time.
+
+Variation is keyed off `hashlib.blake2b` over the surrounding text, not a
+random number, so the same input always gives the same output. Python's
+`hash()` is salted per process and would have made the hooks
+nondeterministic. Self-test pins specific rotated outputs and passes under
+`PYTHONHASHSEED=random`.
+
+Also: rule counts now track edits rather than matches, so a rule that fires
+but leaves the text alone no longer reports a change.
+
+364 rules, 14 categories, 48 self-test cases.
+
 ## 0.4.0
 
 Version bump only. No rule or behavior changes since 0.3.0.
