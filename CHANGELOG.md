@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0
+
+Version bump only. No rule or behavior changes since 0.5.0.
+
 ## 0.5.0
 
 Shifts the goal from removing tics to making prose read human. Rewriting
